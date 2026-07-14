@@ -1,0 +1,5 @@
+streamlit>=1.35
+pandas>=2.2
+plotly>=5.22
+anthropic>=0.28          # optional: set ANTHROPIC_API_KEY to use Claude
+ollama>=0.2              # optional: local Ollama fallback
