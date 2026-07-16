@@ -21,6 +21,11 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+# Must run before the key is read below, so a .env file (see .env.example) works.
+load_dotenv()
+
 # ── LLM backend: try Anthropic first, fall back to Ollama ────────
 try:
     import anthropic
