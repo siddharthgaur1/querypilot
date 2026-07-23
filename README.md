@@ -4,10 +4,10 @@
 
 [![CI](https://github.com/siddharthgaur1/querypilot/actions/workflows/ci.yml/badge.svg)](https://github.com/siddharthgaur1/querypilot/actions/workflows/ci.yml) [![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/downloads/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) [![Clickable with no key](https://img.shields.io/badge/demo-clickable%20with%20no%20key-brightgreen)](#run-with-zero-api-keys)
 
-> **Live demo:** _pending deploy to Hugging Face Spaces (free CPU)._ The demo is
-> **fully clickable with no API key**: pick an example question and watch its SQL
-> run live against the database. The screenshot below is that demo mode running
-> locally — real query, real results, unedited.
+> **▶ Live demo: https://siddharthgaur1-siddharthquerypilot-srcapp-ebww0h.streamlit.app/**
+> — **fully clickable with no API key**: pick an example question and watch its SQL
+> run live against the database (real query, real results). (First load may take ~30s
+> if the app is asleep.)
 
 ![QueryPilot demo mode running a live example query](assets/demo-live-query.png)
 
