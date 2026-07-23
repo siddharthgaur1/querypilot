@@ -8,9 +8,14 @@ venv/
 *.pkl
 .vscode/
 .idea/
+.serena/
+.ipynb_checkpoints/
+.DS_Store
 *.egg-info/
 dist/
 build/
 .pytest_cache/
+.ruff_cache/
+.mypy_cache/
 data/query_history.json
 
