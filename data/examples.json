@@ -1,0 +1,26 @@
+[
+  {
+    "question": "Top 5 merchants by total transaction value this year",
+    "sql": "SELECT m.name AS merchant, m.category, ROUND(SUM(t.amount), 2) AS total_value, COUNT(*) AS txn_count\nFROM transactions t\nJOIN merchants m ON t.merchant_id = m.merchant_id\nWHERE t.status = 'success' AND t.created_at >= datetime('now', '-365 days')\nGROUP BY m.merchant_id\nORDER BY total_value DESC\nLIMIT 5"
+  },
+  {
+    "question": "Which city has the highest transaction failure rate?",
+    "sql": "SELECT c.city,\n       COUNT(*) AS total_txns,\n       SUM(CASE WHEN t.status = 'failed' THEN 1 ELSE 0 END) AS failed_txns,\n       ROUND(100.0 * SUM(CASE WHEN t.status = 'failed' THEN 1 ELSE 0 END) / COUNT(*), 1) AS failure_rate_pct\nFROM transactions t\nJOIN accounts a ON t.account_id = a.account_id\nJOIN customers c ON a.customer_id = c.customer_id\nGROUP BY c.city\nHAVING total_txns >= 10\nORDER BY failure_rate_pct DESC\nLIMIT 10"
+  },
+  {
+    "question": "Compare average transaction value by payment method",
+    "sql": "SELECT payment_method,\n       COUNT(*) AS txn_count,\n       ROUND(AVG(amount), 2) AS avg_value,\n       ROUND(SUM(amount), 2) AS total_value\nFROM transactions\nWHERE status = 'success'\nGROUP BY payment_method\nORDER BY avg_value DESC"
+  },
+  {
+    "question": "Fraud-risk customers: high-risk segment with failed UPI transactions",
+    "sql": "SELECT c.name, c.city, c.risk_segment,\n       COUNT(*) AS failed_upi_txns\nFROM transactions t\nJOIN accounts a ON t.account_id = a.account_id\nJOIN customers c ON a.customer_id = c.customer_id\nWHERE c.risk_segment = 'high'\n  AND t.payment_method = 'UPI'\n  AND t.status = 'failed'\nGROUP BY c.customer_id\nORDER BY failed_upi_txns DESC\nLIMIT 20"
+  },
+  {
+    "question": "Transaction volume by status",
+    "sql": "SELECT status,\n       COUNT(*) AS txn_count,\n       ROUND(SUM(amount), 2) AS total_amount\nFROM transactions\nGROUP BY status\nORDER BY txn_count DESC"
+  },
+  {
+    "question": "Top merchant categories by number of failed transactions",
+    "sql": "SELECT m.category,\n       COUNT(*) AS failed_txns,\n       ROUND(100.0 * COUNT(*) / (SELECT COUNT(*) FROM transactions WHERE status = 'failed'), 1) AS pct_of_all_failures\nFROM transactions t\nJOIN merchants m ON t.merchant_id = m.merchant_id\nWHERE t.status = 'failed'\nGROUP BY m.category\nORDER BY failed_txns DESC\nLIMIT 10"
+  }
+]
