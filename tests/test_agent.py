@@ -83,6 +83,46 @@ class TestExecuteTimeout:
         assert elapsed_ms >= 0
 
 
+class TestReadOnlyEnforcement:
+    """The authorizer is the real guard: it denies writes even when the SQL never
+    went through validate_sql, i.e. a bypass of the friendly regex layer."""
+
+    @pytest.mark.parametrize(
+        "sql",
+        [
+            "UPDATE customers SET name='x'",
+            "DROP TABLE customers",
+            "INSERT INTO customers DEFAULT VALUES",
+            "PRAGMA writable_schema = ON",
+            "ATTACH DATABASE 'evil.db' AS e",
+        ],
+    )
+    def test_writes_are_denied_at_the_engine(self, temp_db, sql):
+        conn = agent._connect_readonly(temp_db)
+        try:
+            with pytest.raises(sqlite3.DatabaseError):
+                conn.execute(sql)
+        finally:
+            conn.close()
+
+    def test_reads_still_work(self, temp_db):
+        conn = agent._connect_readonly(temp_db)
+        try:
+            assert conn.execute("SELECT COUNT(*) FROM customers").fetchone()[0] == 2
+        finally:
+            conn.close()
+
+    def test_table_allowlist_denies_off_list_tables(self, temp_db, monkeypatch):
+        monkeypatch.setattr(agent, "ALLOWED_TABLES", frozenset({"customers"}))
+        conn = agent._connect_readonly(temp_db)
+        try:
+            conn.execute("SELECT * FROM customers").fetchall()  # allowed
+            with pytest.raises(sqlite3.DatabaseError):
+                conn.execute("SELECT * FROM accounts").fetchall()  # off-list
+        finally:
+            conn.close()
+
+
 class TestHistory:
     def test_round_trips_through_json(self, tmp_path, monkeypatch):
         history_file = tmp_path / "history.json"

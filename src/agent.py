@@ -12,6 +12,8 @@ New in v2:
   - Support for Anthropic Claude API as LLM backend (falls back to Ollama)
 """
 
+from __future__ import annotations
+
 import json
 import os
 import re
@@ -73,6 +75,59 @@ def validate_sql(sql: str) -> str:
     return cleaned
 
 
+# Optional table allow-list. Empty => every table in the database is readable
+# (the demo DB is entirely public data). Set QUERYPILOT_ALLOWED_TABLES to a
+# comma-separated list to scope reads to specific tables when pointed at a real
+# database. Enforced by the SQLite authorizer below, not by string matching.
+ALLOWED_TABLES: frozenset[str] = frozenset(
+    t.strip() for t in os.environ.get("QUERYPILOT_ALLOWED_TABLES", "").split(",") if t.strip()
+)
+
+# SQLite action codes the authorizer permits. Everything else — INSERT, UPDATE,
+# DELETE, CREATE, DROP, ALTER, ATTACH, PRAGMA, and the rest — is denied at prepare
+# time, before a single row is touched. This is the real guard: validate_sql and
+# the FORBIDDEN regex are early, friendly rejections that a determined string can
+# fool; the authorizer runs inside SQLite and cannot be talked around.
+_ALLOWED_ACTIONS = frozenset(
+    {
+        sqlite3.SQLITE_SELECT,
+        sqlite3.SQLITE_READ,
+        sqlite3.SQLITE_FUNCTION,
+        sqlite3.SQLITE_RECURSIVE,
+    }
+)
+
+
+def _authorizer(action, arg1, arg2, db_name, trigger):
+    """Per-access decision made by SQLite while preparing a statement."""
+    if action not in _ALLOWED_ACTIONS:
+        return sqlite3.SQLITE_DENY
+    # SQLITE_READ carries the table in arg1. Scope reads to the allow-list when one
+    # is configured; sqlite_* internal tables are always allowed (schema reads).
+    if (
+        action == sqlite3.SQLITE_READ
+        and ALLOWED_TABLES
+        and arg1
+        and not arg1.startswith("sqlite_")
+        and arg1 not in ALLOWED_TABLES
+    ):
+        return sqlite3.SQLITE_DENY
+    return sqlite3.SQLITE_OK
+
+
+def _connect_readonly(db_path: Path, timeout: float = QUERY_TIMEOUT_S) -> sqlite3.Connection:
+    """A connection that can only read: query_only + an authorizer allow-list.
+
+    Two independent layers so a gap in one does not open the database:
+    query_only rejects any write the planner produces, and the authorizer denies
+    every non-read action (and off-allow-list tables) before execution.
+    """
+    conn = sqlite3.connect(db_path, timeout=timeout)
+    conn.execute("PRAGMA query_only = ON")
+    conn.set_authorizer(_authorizer)
+    return conn
+
+
 # ── Schema introspection ─────────────────────────────────────────
 def get_schema(db_path: Path = DEFAULT_DB) -> str:
     conn = sqlite3.connect(db_path)
@@ -97,10 +152,48 @@ def list_databases() -> list[Path]:
     return sorted(DB_DIR.glob("*.db"))
 
 
+def has_llm_backend() -> bool:
+    """True if NL → SQL translation can actually run right now.
+
+    An importable `ollama` package is not the same as a reachable Ollama daemon —
+    on a hosted box the client lib is installed but no server is running, so a
+    naive check would advertise a backend that fails on the first real call. Ping
+    it instead. QUERYPILOT_DEMO=1 forces demo mode regardless (used by the hosted
+    deployment, which has neither a key nor a daemon)."""
+    if os.environ.get("QUERYPILOT_DEMO", "").lower() in ("1", "true", "yes"):
+        return False
+    if _USE_ANTHROPIC:
+        return True
+    if globals().get("_USE_OLLAMA", False):
+        try:
+            _ollama.list()
+            return True
+        except Exception:  # noqa: BLE001 - daemon unreachable => no backend
+            return False
+    return False
+
+
+def run_sql(sql: str, db_path: Path = DEFAULT_DB, max_rows: int = MAX_ROWS) -> AgentResult:
+    """Validate and execute a SQL string through the full safety path.
+
+    Used by the demo mode to run pre-written example queries with no LLM in the
+    loop — the SQL is human-authored, but validation, the read-only authorizer,
+    the timeout, and the row cap all apply exactly as they do for generated SQL.
+    """
+    result = AgentResult(question="", sql=sql, db_used=Path(db_path).name)
+    try:
+        safe = validate_sql(sql)
+        result.sql = safe
+        result.columns, result.rows, result.execution_ms = _execute(safe, db_path, max_rows)
+    except (sqlite3.Error, UnsafeQueryError) as e:
+        result.error = str(e)
+    return result
+
+
 # ── EXPLAIN QUERY PLAN ───────────────────────────────────────────
 def explain_query(sql: str, db_path: Path = DEFAULT_DB) -> str:
     """Return SQLite EXPLAIN QUERY PLAN output as a readable string."""
-    conn = sqlite3.connect(db_path)
+    conn = _connect_readonly(db_path)
     try:
         rows = conn.execute(f"EXPLAIN QUERY PLAN {sql}").fetchall()
         lines = [f"{'id':>4}  {'parent':>6}  {'notused':>7}  detail"]
@@ -201,8 +294,7 @@ def _execute(sql: str, db_path: Path = DEFAULT_DB, max_rows: int = MAX_ROWS) -> 
             busy database — it does not cap how long a query itself may run, so
             this enforces the real wall-clock limit via a progress handler.
     """
-    conn = sqlite3.connect(db_path, timeout=QUERY_TIMEOUT_S)
-    conn.execute("PRAGMA query_only = ON")
+    conn = _connect_readonly(db_path)
     t0 = time.perf_counter()
     conn.set_progress_handler(lambda: (time.perf_counter() - t0) > QUERY_TIMEOUT_S, 1000)
     try:
