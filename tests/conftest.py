@@ -21,6 +21,12 @@ def temp_db(tmp_path) -> Path:
             city TEXT
         );
         INSERT INTO customers VALUES (1, 'Alice', 'Mumbai'), (2, 'Bob', 'Delhi');
+        CREATE TABLE accounts (
+            account_id INTEGER PRIMARY KEY,
+            customer_id INTEGER,
+            balance REAL
+        );
+        INSERT INTO accounts VALUES (1, 1, 100.0), (2, 2, 50.0);
     """)
     conn.commit()
     conn.close()
