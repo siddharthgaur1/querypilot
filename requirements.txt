@@ -1,6 +1,12 @@
 streamlit==1.59.2
 pandas==3.0.3
 plotly==6.8.0
-anthropic==0.116.0
-ollama==0.6.2
 python-dotenv==1.2.2
+
+# LLM backends for the full natural-language mode are OPTIONAL and kept out of the
+# core install so the keyless demo deploys cleanly (one of them fails to build on
+# the host's Python 3.14, which aborted the whole install). The app guards both
+# imports, so their absence just means demo mode. For live NL→SQL locally, install
+# whichever you want:
+#   pip install "anthropic==0.116.0"     # then set ANTHROPIC_API_KEY
+#   pip install "ollama==0.6.2"          # then run a local Ollama daemon
