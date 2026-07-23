@@ -6,6 +6,11 @@ venv/
 .env
 *.db
 *.pkl
+# Exception: commit the synthetic demo database so the hosted app has data on
+# first load. Streamlit Community Cloud does not run the on-boot setup_db build
+# (read-only app filesystem), so the DB ships in the repo. It holds only
+# synthetic fintech data — no secrets, no personal data.
+!data/fintech.db
 .vscode/
 .idea/
 .serena/
