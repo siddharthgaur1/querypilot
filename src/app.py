@@ -18,6 +18,7 @@ Run:
 """
 
 import json
+import runpy
 import sys
 from pathlib import Path
 
@@ -27,13 +28,36 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from agent import (
-    ask, get_schema,
+    ask, get_schema, run_sql, has_llm_backend,
     load_history, list_databases,
     DEFAULT_DB, LLM_MODEL_OLLAMA,
     _USE_ANTHROPIC,
 )
 
 st.set_page_config(page_title="QueryPilot", page_icon="🧭", layout="wide")
+
+# On a fresh deployment the demo DB is not in git (*.db is gitignored). Build it
+# once from the committed generator so the app has real data to query on boot.
+if not DEFAULT_DB.exists():
+    setup = Path(__file__).resolve().parent.parent / "scripts" / "setup_db.py"
+    if setup.exists():
+        try:
+            runpy.run_path(str(setup), run_name="__main__")
+        except SystemExit:
+            pass
+
+# No API key and no local Ollama? Fall back to a demo that runs committed example
+# queries live. The SQL is human-authored (labelled as such), but execution,
+# results and charts are all real — nothing is a canned screenshot.
+DEMO_MODE = not has_llm_backend()
+EXAMPLES_FILE = DEFAULT_DB.parent / "examples.json"
+
+
+@st.cache_data
+def _load_examples() -> list[dict]:
+    if EXAMPLES_FILE.exists():
+        return json.loads(EXAMPLES_FILE.read_text(encoding="utf-8"))
+    return []
 
 
 # ── Helpers ───────────────────────────────────────────────────────
@@ -146,6 +170,16 @@ with st.sidebar:
 # ── Header ────────────────────────────────────────────────────────
 st.title("Ask your database anything")
 
+if DEMO_MODE:
+    st.info(
+        "🧪 **Demo mode** — no LLM key or local Ollama detected, so live "
+        "natural-language translation is off. Pick an example below: its SQL is "
+        "pre-written, but it runs **live** against the database and the results and "
+        "charts are real. Add an `ANTHROPIC_API_KEY` or run Ollama to ask your own "
+        "questions in plain English.",
+        icon="🧪",
+    )
+
 if not active_db.exists():
     st.error(f"Database `{active_db.name}` not found. Run `python scripts/setup_db.py` first.")
     st.stop()
@@ -180,20 +214,38 @@ with tab_chat:
                 _render_chart(df, key=f"chart_{item.get('_idx', 0)}")
                 _render_export(df, key=f"exp_{item.get('_idx', 0)}")
 
-    # Input
-    if question := st.chat_input("e.g. Top 10 merchants by failed transaction rate"):
+    # Input. In demo mode the user picks a pre-written example instead of typing,
+    # since there is no backend to translate free text. Both paths run the SQL
+    # through the identical safety + execution code below.
+    question = None
+    demo_sql = None
+    if DEMO_MODE:
+        examples = _load_examples()
+        labels = ["— pick an example query —"] + [e["question"] for e in examples]
+        picked = st.selectbox("Example questions", labels, key="demo_pick")
+        if picked and picked != labels[0]:
+            question = picked
+            demo_sql = next(e["sql"] for e in examples if e["question"] == picked)
+    else:
+        question = st.chat_input("e.g. Top 10 merchants by failed transaction rate")
+
+    if question:
         with st.chat_message("user"):
             st.markdown(question)
 
         with st.chat_message("assistant"):
             with st.spinner("Querying…"):
-                result = ask(
-                    question,
-                    summarise=summarise,
-                    db_path=active_db,
-                    max_rows=max_rows,
-                    include_explain=include_explain,
-                )
+                if demo_sql is not None:
+                    result = run_sql(demo_sql, db_path=active_db, max_rows=max_rows)
+                    result.question = question
+                else:
+                    result = ask(
+                        question,
+                        summarise=summarise,
+                        db_path=active_db,
+                        max_rows=max_rows,
+                        include_explain=include_explain,
+                    )
 
             entry = {
                 "question": question,
