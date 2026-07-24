@@ -20,7 +20,7 @@ import re
 import sqlite3
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -200,7 +200,7 @@ def explain_query(sql: str, db_path: Path = DEFAULT_DB) -> str:
         for r in rows:
             lines.append(f"{r[0]:>4}  {r[1]:>6}  {r[2]:>7}  {r[3]}")
         return "\n".join(lines)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - EXPLAIN is best-effort diagnostics, never fatal
         return f"Could not explain query: {e}"
     finally:
         conn.close()
@@ -332,7 +332,7 @@ def load_history() -> list[dict]:
     if HISTORY_FILE.exists():
         try:
             return json.loads(HISTORY_FILE.read_text())
-        except Exception:
+        except (json.JSONDecodeError, OSError):
             return []
     return []
 
@@ -342,10 +342,10 @@ def save_history(history: list[dict]):
     HISTORY_FILE.write_text(json.dumps(history[-200:], indent=2))  # keep last 200
 
 
-def append_to_history(result: "AgentResult"):
+def append_to_history(result: AgentResult):
     history = load_history()
     history.append({
-        "ts": datetime.now().isoformat(timespec="seconds"),
+        "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "question": result.question,
         "sql": result.sql,
         "rows": len(result.rows),
@@ -398,8 +398,8 @@ def ask(
     if summarise and result.rows:
         try:
             result.summary = _summarise(question, result.columns, result.rows)
-        except Exception:
-            pass
+        except Exception:  # noqa: BLE001, S110 - summary is a bonus; a failure here must not
+            pass  # break a query that already succeeded
 
     append_to_history(result)
     return result

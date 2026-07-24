@@ -28,10 +28,15 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from agent import (
-    ask, get_schema, run_sql, has_llm_backend,
-    load_history, list_databases,
-    DEFAULT_DB, LLM_MODEL_OLLAMA,
     _USE_ANTHROPIC,
+    DEFAULT_DB,
+    LLM_MODEL_OLLAMA,
+    ask,
+    get_schema,
+    has_llm_backend,
+    list_databases,
+    load_history,
+    run_sql,
 )
 
 st.set_page_config(page_title="QueryPilot", page_icon="🧭", layout="wide")
@@ -91,7 +96,7 @@ def _render_chart(df: pd.DataFrame, key: str):
         else:
             fig = px.scatter(df, x=x_col, y=y_col, color_discrete_sequence=["#1f2937"])
 
-        fig.update_layout(plot_bgcolor="white", margin=dict(t=20, b=10), height=320)
+        fig.update_layout(plot_bgcolor="white", margin={"t": 20, "b": 10}, height=320)
         st.plotly_chart(fig, use_container_width=True)
 
 
