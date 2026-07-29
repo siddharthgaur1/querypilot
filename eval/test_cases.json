@@ -1,0 +1,26 @@
+[
+  {"question": "How many customers are there?", "category": "single_table", "expected_sql": "SELECT COUNT(*) FROM customers"},
+  {"question": "List all merchant categories", "category": "single_table", "expected_sql": "SELECT DISTINCT category FROM merchants"},
+  {"question": "Show all accounts with balance over 1000", "category": "single_table", "expected_sql": "SELECT * FROM accounts WHERE balance > 1000"},
+  {"question": "What is the average transaction amount?", "category": "single_table", "expected_sql": "SELECT AVG(amount) AS avg_amount FROM transactions"},
+
+  {"question": "List each customer's name with their account balance", "category": "join", "expected_sql": "SELECT c.name, a.balance FROM customers c JOIN accounts a ON c.customer_id = a.customer_id"},
+  {"question": "Show transaction amount and merchant name for each transaction", "category": "join", "expected_sql": "SELECT t.amount, m.name FROM transactions t JOIN merchants m ON t.merchant_id = m.merchant_id"},
+  {"question": "List customers and the number of accounts they have", "category": "join", "expected_sql": "SELECT c.name, COUNT(a.account_id) AS n_accounts FROM customers c JOIN accounts a ON c.customer_id = a.customer_id GROUP BY c.customer_id"},
+  {"question": "Show account type and transaction status for each transaction", "category": "join", "expected_sql": "SELECT a.account_type, t.status FROM transactions t JOIN accounts a ON t.account_id = a.account_id"},
+
+  {"question": "What is the total transaction amount by payment method?", "category": "aggregation", "expected_sql": "SELECT payment_method, SUM(amount) AS total FROM transactions GROUP BY payment_method"},
+  {"question": "How many transactions failed for each failure reason?", "category": "aggregation", "expected_sql": "SELECT failure_reason, COUNT(*) AS n FROM transactions WHERE status = 'failed' GROUP BY failure_reason"},
+  {"question": "What is the average balance by account type?", "category": "aggregation", "expected_sql": "SELECT account_type, AVG(balance) AS avg_balance FROM accounts GROUP BY account_type"},
+  {"question": "Top 5 merchants by total transaction value", "category": "aggregation", "expected_sql": "SELECT m.name, SUM(t.amount) AS total FROM transactions t JOIN merchants m ON t.merchant_id = m.merchant_id GROUP BY m.merchant_id ORDER BY total DESC LIMIT 5"},
+
+  {"question": "Which customers have an account balance above the average balance?", "category": "subquery", "expected_sql": "SELECT c.name FROM customers c JOIN accounts a ON c.customer_id = a.customer_id WHERE a.balance > (SELECT AVG(balance) FROM accounts)"},
+  {"question": "Show merchants that have never had a transaction", "category": "subquery", "expected_sql": "SELECT name FROM merchants WHERE merchant_id NOT IN (SELECT merchant_id FROM transactions WHERE merchant_id IS NOT NULL)"},
+  {"question": "List accounts belonging to customers in the high risk segment", "category": "subquery", "expected_sql": "SELECT * FROM accounts WHERE customer_id IN (SELECT customer_id FROM customers WHERE risk_segment = 'high')"},
+  {"question": "Find customers whose total transaction amount exceeds 5000", "category": "subquery", "expected_sql": "SELECT c.name FROM customers c WHERE c.customer_id IN (SELECT a.customer_id FROM accounts a JOIN transactions t ON t.account_id = a.account_id GROUP BY a.customer_id HAVING SUM(t.amount) > 5000)"},
+
+  {"question": "Which city has the most customers?", "category": "ambiguous_column", "expected_sql": "SELECT city, COUNT(*) AS n FROM customers GROUP BY city ORDER BY n DESC LIMIT 1"},
+  {"question": "Which city has the most merchants?", "category": "ambiguous_column", "expected_sql": "SELECT city, COUNT(*) AS n FROM merchants GROUP BY city ORDER BY n DESC LIMIT 1"},
+  {"question": "List merchant names in Mumbai", "category": "ambiguous_column", "expected_sql": "SELECT name FROM merchants WHERE city = 'Mumbai'"},
+  {"question": "List customer names in Mumbai", "category": "ambiguous_column", "expected_sql": "SELECT name FROM customers WHERE city = 'Mumbai'"}
+]

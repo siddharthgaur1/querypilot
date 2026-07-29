@@ -23,4 +23,6 @@ build/
 .ruff_cache/
 .mypy_cache/
 data/query_history.json
+data/chroma/
+eval/results.json
 

@@ -10,3 +10,11 @@ python-dotenv==1.2.2
 # whichever you want:
 #   pip install "anthropic==0.116.0"     # then set ANTHROPIC_API_KEY
 #   pip install "ollama==0.6.2"          # then run a local Ollama daemon
+
+# Schema-aware RAG (rag/) is also OPTIONAL, same reasoning: sentence-transformers
+# pulls in torch, which is exactly the kind of heavy/fragile build dependency the
+# keyless demo is designed to avoid. Every rag/ module guards these imports and
+# rag.prompt_builder falls back to the old full-schema prompt when they're
+# missing (or when retrieval finds nothing), so the app runs identically without
+# them -- just without retrieval. To enable RAG locally:
+#   pip install "chromadb==1.5.9" "sentence-transformers==5.6.0"
