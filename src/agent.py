@@ -18,6 +18,7 @@ import json
 import os
 import re
 import sqlite3
+import sys
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -27,6 +28,12 @@ from dotenv import load_dotenv
 
 # Must run before the key is read below, so a .env file (see .env.example) works.
 load_dotenv()
+
+# rag/ lives at the project root (sibling to src/), not under src/, so it needs
+# the repo root on sys.path — same pattern tests/conftest.py uses for src/ itself.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from rag import history_store
+from rag.prompt_builder import build_prompt as _build_rag_prompt
 
 # ── LLM backend: try Anthropic first, fall back to Ollama ────────
 try:
@@ -242,6 +249,10 @@ class AgentResult:
     execution_ms: float = 0.0
     explain_plan: str = ""
     db_used: str = ""
+    retrieved_chunks: list = field(default_factory=list)
+    few_shot_examples: list = field(default_factory=list)
+    rag_confidence: str = "low"
+    used_rag_fallback: bool = True
 
 
 # ── LLM calls ────────────────────────────────────────────────────
@@ -279,10 +290,27 @@ def _extract_sql(raw: str) -> str:
 
 
 def _generate_sql(question: str, schema: str) -> str:
+    """Old approach: the entire schema in every prompt. Still used as the
+    fallback body inside the RAG prompt when retrieval finds nothing, and kept
+    standalone for eval/benchmark.py to compare against the RAG path."""
     return _extract_sql(_chat([
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": f"Database schema:\n\n{schema}\n\nQuestion: {question}"},
     ]))
+
+
+def _generate_sql_rag(question: str, schema: str, db_path: Path):
+    """RAG approach: retrieve relevant schema chunks + similar past queries
+    instead of the full schema (see rag/prompt_builder.py). `schema` is passed
+    through as the fallback body if retrieval comes back empty. Returns
+    (sql, PromptResult) — the PromptResult carries retrieved_chunks/few_shot/
+    confidence for the UI and for logging to history_store."""
+    prompt_result = _build_rag_prompt(question, db_path, fallback_schema=schema)
+    sql = _extract_sql(_chat([
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": prompt_result.user_content},
+    ]))
+    return sql, prompt_result
 
 
 def _execute(sql: str, db_path: Path = DEFAULT_DB, max_rows: int = MAX_ROWS) -> tuple[list, list, float]:
@@ -365,10 +393,15 @@ def ask(
     max_rows: int = MAX_ROWS,
     include_explain: bool = False,
 ) -> AgentResult:
-    """Full pipeline: NL -> SQL -> validate -> execute -> (self-correct) -> summarise."""
+    """Full pipeline: NL -> SQL (RAG-retrieved schema + few-shot) -> validate ->
+    execute -> (self-correct) -> summarise."""
     result = AgentResult(question=question, db_used=str(db_path.name))
     schema = get_schema(db_path)
-    sql = _generate_sql(question, schema)
+    sql, prompt_result = _generate_sql_rag(question, schema, db_path)
+    result.retrieved_chunks = prompt_result.retrieved_chunks
+    result.few_shot_examples = prompt_result.few_shot_examples
+    result.rag_confidence = prompt_result.confidence
+    result.used_rag_fallback = prompt_result.used_fallback
 
     for attempt in range(2):
         try:
@@ -380,7 +413,7 @@ def ask(
             if attempt == 0:
                 corrected_raw = _chat([
                     {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": f"Database schema:\n\n{schema}\n\nQuestion: {question}"},
+                    {"role": "user", "content": prompt_result.user_content},
                     {"role": "assistant", "content": sql},
                     {"role": "user", "content": CORRECTION_PROMPT.format(error=e, sql=sql)},
                 ])
@@ -400,6 +433,11 @@ def ask(
             result.summary = _summarise(question, result.columns, result.rows)
         except Exception:  # noqa: BLE001, S110 - summary is a bonus; a failure here must not
             pass  # break a query that already succeeded
+
+    try:
+        history_store.add_query(question, result.sql, True, result.execution_ms, prompt_result.db_hash)
+    except Exception:  # noqa: BLE001, S110 - few-shot logging is best-effort, must never break a successful query
+        pass
 
     append_to_history(result)
     return result

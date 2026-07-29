@@ -66,8 +66,8 @@ translation. Paid; everything above is free.
 User question
       │
       ▼
-Schema introspection  ←── reads live DDL + sample rows from SQLite
-      │
+Schema-aware RAG prompt (rag/)  ←── retrieved schema chunks + similar past queries
+      │                              (falls back to full schema if retrieval is empty)
       ▼
 LLM (Claude / Llama3.2)  →  raw SQL
       │
@@ -79,8 +79,78 @@ _execute()  [PRAGMA query_only=ON + SQLite authorizer (deny non-reads),
              optional table allow-list, row cap, real wall-clock timeout]
       │
       ▼
-Results + AI summary + auto-chart
+Results + AI summary + auto-chart, and (on success) the question+SQL is
+embedded and stored for future few-shot retrieval
 ```
+
+## RAG Architecture
+
+The original approach dumped the entire schema (every table's DDL + 3 sample
+rows) into every single prompt. That's wasteful once a database has more than a
+handful of tables, and it doesn't help the model — burying the two relevant
+tables in fifteen irrelevant ones makes joins and ambiguous columns *harder* to
+get right, not easier. `rag/` replaces that with retrieval: pull in only the
+schema pieces relevant to *this* question, plus a couple of similar past
+questions as worked examples.
+
+```
+Schema indexing (once per DB, cached by schema hash)
+  rag/schema_indexer.py
+    PRAGMA table_info / foreign_key_list / sample rows
+      → one chunk per table (DDL-ish + samples)
+      → one chunk per table's column descriptions
+      → one chunk per foreign-key relationship ("A joins B on A.x = B.y")
+    → embedded (all-MiniLM-L6-v2) → ChromaDB collection "schema_{db_hash}"
+
+Per question:
+  rag/prompt_builder.py
+    1. embed the question
+    2. top-4 schema chunks from ChromaDB, filtered to this db_hash
+    3. top-3 similar past questions from rag/history_store.py (cosine
+       similarity over embedded questions, scoped to this db_hash,
+       successful queries only)
+    4. assemble: "Relevant schema: ... / Similar past queries: ... / Question: ..."
+    → if step 2 returns nothing (chromadb missing, nothing indexed yet, any
+      retrieval error): fall back to the full schema, unchanged from before
+
+  rag/history_store.py
+    On every successful query (agent.ask), the question is embedded and stored
+    in a small SQLite table (query_history), so it becomes a future few-shot
+    example for similar questions against the same database.
+```
+
+**Why not LangChain here**, despite it being a natural fit for RAG pipelines:
+the whole retrieval flow is three ChromaDB calls and a cosine similarity loop —
+adding a framework on top would mean learning its abstractions to do something
+this codebase already expresses directly in about 200 lines across two files.
+Reached for it in [finrag](https://github.com/siddharthgaur1/finrag) and
+[rag-hybrid-search](https://github.com/siddharthgaur1/rag-hybrid-search), where
+the retrieval logic is genuinely more involved.
+
+**Confidence indicator**: the UI shows 🟢 high (4 schema chunks matched), 🟡
+medium (2-3), 🔴 low (<2 — likely running on the full-schema fallback). It's a
+direct proxy for "how targeted was the retrieval," not a model-reported
+confidence.
+
+**Failure mode is always "fall back to the old behavior," never "break."**
+Every retrieval call in `rag/` is wrapped so that a missing dependency, an
+empty collection, or an unexpected exception degrades to exactly what QueryPilot
+did before this feature existed — the full schema in the prompt. Nothing in
+`rag/` touches `validate_sql`, the SQLite authorizer, `PRAGMA query_only`, or
+the table allow-list; the four safety layers are unmodified by this feature.
+
+**Evaluating it**: `eval/benchmark.py` runs a fixed 20-question set
+(`eval/test_cases.json` — single-table, 2-table join, aggregation, subquery,
+ambiguous-column categories, 4 each) through both the old full-schema prompt
+and the new RAG prompt, and reports exact-match %, execution-success %,
+estimated prompt tokens, and latency for each, to `eval/results.json`. It needs
+a real LLM backend (Ollama for free/local, or `ANTHROPIC_API_KEY` — the latter
+is not free, it calls the API 40 times per run). Harness mechanics were
+verified with a mocked backend rather than run against a paid API in this
+environment; on the mocked run the RAG prompt was already ~32% smaller in
+estimated tokens than the full-schema prompt on this 4-table demo DB — that
+gap widens with more tables, which is the actual point of retrieval over
+"paste the whole schema."
 
 ## Tech stack
 
@@ -91,6 +161,7 @@ Results + AI summary + auto-chart
 | Claude, with Ollama fallback | Claude for SQL generation quality; Ollama lets it run fully offline/free for local dev without an API key. |
 | SQLite over Postgres/MySQL for the demo DB | Zero setup for a portfolio project — the whole point is the NL→SQL→safety pipeline, not database administration. |
 | Streamlit | Chat UI, schema browser, and chart/export in one file, no separate frontend. |
+| ChromaDB + sentence-transformers (MiniLM), no LangChain | Schema-aware retrieval and few-shot history, both optional (`rag/` degrades to the old full-schema prompt if either is missing) — see [RAG Architecture](#rag-architecture) for why a framework wasn't worth adding on top. |
 
 ## Setup
 

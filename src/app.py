@@ -12,6 +12,8 @@ Enhancements over v1:
   - Elapsed time display
   - Syntax-highlighted SQL with copy button (st.code)
   - Dark/light mode respect via Streamlit theming
+  - Schema-aware RAG: retrieved schema chunks + similar-past-query few-shot
+    examples shown per query, with a retrieval-confidence indicator
 
 Run:
     streamlit run src/app.py
@@ -98,6 +100,41 @@ def _render_chart(df: pd.DataFrame, key: str):
 
         fig.update_layout(plot_bgcolor="white", margin={"t": 20, "b": 10}, height=320)
         st.plotly_chart(fig, use_container_width=True)
+
+
+_CONFIDENCE_BADGE = {"high": "🟢", "medium": "🟡", "low": "🔴"}
+
+
+def _render_rag_context(entry: dict):
+    """RAG transparency: what schema chunks and past-query examples fed the
+    prompt for this answer, plus a confidence indicator from the chunk count.
+    Absent for demo-mode SQL (human-authored, no LLM/RAG in the loop)."""
+    if entry.get("used_rag_fallback") and not entry.get("retrieved_chunks"):
+        st.caption("🗂️ Full schema used (RAG retrieval unavailable or empty for this database)")
+        return
+    if "rag_confidence" not in entry:
+        return  # demo mode: no LLM call, nothing to show
+
+    chunks = entry.get("retrieved_chunks", [])
+    few_shot = entry.get("few_shot_examples", [])
+    confidence = entry.get("rag_confidence", "low")
+    badge = _CONFIDENCE_BADGE.get(confidence, "🔴")
+    st.caption(f"{badge} Retrieval confidence: **{confidence}** ({len(chunks)} schema chunks matched)")
+
+    with st.expander(f"🔎 Retrieved Context ({len(chunks)} chunks)"):
+        if not chunks:
+            st.caption("No schema chunks retrieved.")
+        for c in chunks:
+            meta = c.get("metadata", {})
+            st.markdown(f"**[{meta.get('chunk_type', '?')}] {meta.get('table_name', '?')}**")
+            st.code(c.get("text", ""), language="text")
+
+    with st.expander(f"🧭 Similar Past Queries ({len(few_shot)})"):
+        if not few_shot:
+            st.caption("No similar past queries yet — the history store fills in as you ask more.")
+        for ex in few_shot:
+            st.markdown(f"*{ex['question']}*  (similarity {ex['similarity']:.2f})")
+            st.code(ex["sql"], language="sql")
 
 
 def _render_export(df: pd.DataFrame, key: str):
@@ -210,6 +247,7 @@ with tab_chat:
             if item.get("explain_plan"):
                 with st.expander("🔍 Query Plan"):
                     st.code(item["explain_plan"])
+            _render_rag_context(item)
             if item.get("error"):
                 st.error(item["error"])
             elif item.get("df") is not None:
@@ -259,6 +297,13 @@ with tab_chat:
                 "ms": result.execution_ms,
                 "_idx": len(st.session_state.history),
             }
+            if demo_sql is None:
+                # RAG context only applies to the real LLM path — demo mode runs
+                # human-authored SQL with no prompt/retrieval involved.
+                entry["retrieved_chunks"] = result.retrieved_chunks
+                entry["few_shot_examples"] = result.few_shot_examples
+                entry["rag_confidence"] = result.rag_confidence
+                entry["used_rag_fallback"] = result.used_rag_fallback
 
             if result.corrected:
                 st.caption("⚙️ First attempt failed — auto-corrected")
@@ -273,6 +318,8 @@ with tab_chat:
                 with st.expander("🔍 Query Plan"):
                     st.code(result.explain_plan)
                 entry["explain_plan"] = result.explain_plan
+
+            _render_rag_context(entry)
 
             if result.error:
                 st.error(f"Query failed: {result.error}")
@@ -296,8 +343,9 @@ with tab_history:
         st.info("No queries yet. Start chatting!")
     else:
         df_hist = pd.DataFrame(hist[::-1])  # newest first
-        df_hist = df_hist[["ts", "question", "rows", "execution_ms", "error", "corrected", "db"]]
-        df_hist.columns = ["Timestamp", "Question", "Rows", "Time (ms)", "Error", "Corrected", "DB"]
+        df_hist["success"] = df_hist["error"].apply(lambda e: not e)
+        df_hist = df_hist[["ts", "question", "sql", "success", "rows", "execution_ms", "error", "corrected", "db"]]
+        df_hist.columns = ["Timestamp", "Question", "SQL", "Success", "Rows", "Time (ms)", "Error", "Corrected", "DB"]
         df_hist["Error"] = df_hist["Error"].fillna("—")
         st.dataframe(df_hist, use_container_width=True, hide_index=True)
 
