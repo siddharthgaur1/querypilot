@@ -32,8 +32,8 @@ load_dotenv()
 # rag/ lives at the project root (sibling to src/), not under src/, so it needs
 # the repo root on sys.path — same pattern tests/conftest.py uses for src/ itself.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from rag import history_store  # noqa: E402
-from rag.prompt_builder import build_prompt as _build_rag_prompt  # noqa: E402
+from rag import history_store
+from rag.prompt_builder import build_prompt as _build_rag_prompt
 
 # ── LLM backend: try Anthropic first, fall back to Ollama ────────
 try:
@@ -436,8 +436,8 @@ def ask(
 
     try:
         history_store.add_query(question, result.sql, True, result.execution_ms, prompt_result.db_hash)
-    except Exception:
-        pass  # few-shot logging is best-effort; must never break a successful query
+    except Exception:  # noqa: BLE001, S110 - few-shot logging is best-effort, must never break a successful query
+        pass
 
     append_to_history(result)
     return result
