@@ -18,7 +18,6 @@ import numpy as np
 from .schema_indexer import RAG_AVAILABLE, embed_texts
 
 DB_PATH = Path(__file__).resolve().parent.parent / "data" / "query_rag_history.db"
-EMBED_DIM = 384  # all-MiniLM-L6-v2 output size
 
 
 def _connect() -> sqlite3.Connection:
