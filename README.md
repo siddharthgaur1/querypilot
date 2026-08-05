@@ -1,5 +1,10 @@
 # QueryPilot
 
+
+![QueryPilot turning a natural-language question into SQL against a demo SQLite database](docs/demo.png)
+
+<sub>Live demo, runs the full safety path with no API key.</sub>
+
 **Ask a database questions in plain English — and it is structurally impossible for the answer to write to, alter, or escape that database.**
 
 [![CI](https://github.com/siddharthgaur1/querypilot/actions/workflows/ci.yml/badge.svg)](https://github.com/siddharthgaur1/querypilot/actions/workflows/ci.yml) [![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/downloads/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) [![Clickable with no key](https://img.shields.io/badge/demo-clickable%20with%20no%20key-brightgreen)](#run-with-zero-api-keys)
