@@ -226,7 +226,7 @@ table allow-list and the runaway-CTE timeout are tested the same way.
   every interaction, so this was a guaranteed `NameError` on the very first
   result. Moved the definitions above their call sites.
 
-## What I'd improve with more time
+## Limitations
 
 1. **No prompt-injection testing.** The blocklist defends against the LLM
    generating a write; it doesn't defend against a user crafting a *question*
