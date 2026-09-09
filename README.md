@@ -1,5 +1,10 @@
 # QueryPilot
 
+> **Archived — superseded by [querypilot-v2](https://github.com/siddharthgaur1/querypilot-v2).**
+> v2 is a ground-up rewrite with a proper safety layer, its own test suite and Docker Compose
+> setup. This repo is kept read-only as the original, working version; the Streamlit demo below
+> still runs. New work happens in v2.
+
 [![Portfolio](https://img.shields.io/badge/↩-siddharthgaur1-111827?style=flat-square)](https://github.com/siddharthgaur1)
 [![CI](https://github.com/siddharthgaur1/querypilot/actions/workflows/ci.yml/badge.svg)](https://github.com/siddharthgaur1/querypilot/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
